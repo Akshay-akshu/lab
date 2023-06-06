@@ -1,0 +1,72 @@
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
+public class TwoPhaseCommitExample {
+    public static void main(String[] args) {
+        // Connection parameters for Table1 database
+        String table1Url = "jdbc:sqlserver://localhost:1433;databaseName=Table1DB";
+        String table1Username = "yourTable1Username";
+        String table1Password = "yourTable1Password";
+
+        // Connection parameters for Table2 database
+        String table2Url = "jdbc:sqlserver://localhost:1433;databaseName=Table2DB";
+        String table2Username = "yourTable2Username";
+        String table2Password = "yourTable2Password";
+
+        // User input (student ID and due amount)
+        int studentId = 12345;
+        double dueAmount = 100.50;
+
+        // Establishing the connection to the Table1 database
+        try (Connection table1Connection = DriverManager.getConnection(table1Url, table1Username, table1Password);
+             Connection table2Connection = DriverManager.getConnection(table2Url, table2Username, table2Password)) {
+
+            System.out.println("Connected to MS SQL Server!");
+
+            // Retrieve existing due amount for the student from Table1 database
+            double currentDueAmount = 0.0;
+            try (PreparedStatement table1Statement = table1Connection.prepareStatement("SELECT Due_amount FROM Table1 WHERE Student_ID = ?")) {
+                table1Statement.setInt(1, studentId);
+                try (ResultSet table1ResultSet = table1Statement.executeQuery()) {
+                    if (table1ResultSet.next()) {
+                        currentDueAmount = table1ResultSet.getDouble("Due_amount");
+                    } else {
+                        System.out.println("Student not found in Table1.");
+                        return;
+                    }
+                }
+            }
+
+            // Check if the due amount is valid (less than or equal to the current due amount)
+            if (dueAmount > currentDueAmount) {
+                System.out.println("Invalid due amount. Amount is greater than the available due amount.");
+                return;
+            }
+
+            // Update Table2 in Table2 database by reducing the due amount
+            double updatedDueAmount = currentDueAmount - dueAmount;
+            try (PreparedStatement table2UpdateStatement = table2Connection.prepareStatement("UPDATE Table2 SET Due_amount = ? WHERE Student_ID = ?")) {
+                table2UpdateStatement.setDouble(1, updatedDueAmount);
+                table2UpdateStatement.setInt(2, studentId);
+                table2UpdateStatement.executeUpdate();
+            }
+
+            // Update Table1 in Table1 database with the due amount
+            try (PreparedStatement table1UpdateStatement = table1Connection.prepareStatement("UPDATE Table1 SET Due_amount = ? WHERE Student_ID = ?")) {
+                table1UpdateStatement.setDouble(1, dueAmount);
+                table1UpdateStatement.setInt(2, studentId);
+                table1UpdateStatement.executeUpdate();
+            }
+
+            // Commit the transaction
+            table1Connection.commit();
+            table2Connection.commit();
+            System.out.println("Transaction committed successfully!");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+}
